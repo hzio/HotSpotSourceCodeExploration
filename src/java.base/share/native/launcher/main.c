@@ -75,6 +75,7 @@
 
 /*
  * Entry point.
+ * HotSpot主入口
  */
 #ifdef JAVAW
 

@@ -738,6 +738,8 @@ ContinueInNewThread0(int (JNICALL *continuation)(void *), jlong stack_size, void
       rslt = (int)(intptr_t)tmp;
     } else {
      /*
+      *  调用JNI_CreateJavaVM执行创建虚拟机
+      *
       * Continue execution in current thread if for some reason (e.g. out of
       * memory/LWP)  a new thread can't be created. This will likely fail
       * later in continuation as JNI_CreateJavaVM needs to create quite a
@@ -913,6 +915,67 @@ JVMInit(InvocationFunctions* ifn, jlong threadStackSize,
         [pool drain];
         return rslt;
     } else {
+        // block当前线程并且在新线程中继续执行
+        // 至于为什么在新线程中创建JVM见如下注释引用或原文https://bugs.openjdk.java.net/browse/JDK-6316197
+//      Primordial thread is created by the kernel before any program/library code
+//      has a chance to run. It's stack size and location can be very different
+//      from other threads created by the application. Creating JVM from primordial
+//      thread and later running Java code in the primordial thread introduced
+//      many problems:
+//
+//      1. On Windows primordial thread stack size is controlled by PE header in
+//         the executable. There is no way for user to change it dynamically, which
+//         means -Xss does not work for primordial thread.
+//
+//      2. On Solaris/Linux, primordial thread stack size is controlled by ulimit -s,
+//         which is usually very large (8M). To compensate for that we set guard
+//         page in the middle of stack to artificially reduce the stack size. However,
+//         this may interfere with native applications.
+//
+//      3. Setting guard page for primordial thread is dangerous. Unlike other
+//         threads, primordial thread stack can grow on demand. getrlimit()
+//         tells VM the ulimit value which is the upper limit but not necessarily
+//         the actual stack size. What could happen is that VM sets up the guard
+//         at the theoretical limit, but because the program doesn't really use
+//         that much stack, the unused space is reused for other purposes (e.g. malloc)
+//         by the OS (this reuse won't occur with other threads). We ended up having
+//         some C heap inserted between stack and its guard page.
+//
+//      4. On Linux VM bangs stack address below current SP to check for stack overflows.
+//         This will trigger SEGV's if it happens in primordial thread due to a security
+//         feature built into the kernel. Linux VM gets around the problem by manually
+//         expanding the stack. However when VM is expanding the stack, for a very short
+//         period the available stack space will be reduced to just 1 page. If a signal
+//         is delivered in that window, VM could end up without space to handle the signal.
+//
+//      5. Some Linux kernel randomizes the starting stack address for primordial thread
+//         both for stack coloring and exec-shield, but it won't tell the application.
+//         This makes it impossible to reliably detect stack location and size in primordial
+//         thread. VM needs the information to correctly handle stack overflows. We do
+//         have some cushion which is enough most of the time, but as shown in bug reports
+//         people do hit crashes because of this.
+//
+//      6. On Linux there is no thr_main() equivalent that can tell if current thread
+//         is primordial thread, makes it even harder to have special code to handle
+//         primordial thread.
+//
+//      I'm sure there are other issues that I didn't cover in the list. Basically
+//      primordial thread has been a constant source of runtime bugs.
+//
+//      This proposal calls for java launcher to stop calling JNI_CreateJavaVM from
+//      primordial thread. Instead, it can create a new thread and move all invocation
+//      code to the new thread. Primordial thread simply waits for the new thread
+//      to return and then it can terminate the process with the same exit value returned
+//      by the new thread. With this change we won't see any of the above problems
+//      as long as the application is started by a standard Sun launcher.
+//
+//      The above mentioned will still exist if VM is invoked from natvie application.
+//      Which means we have to keep all current VM workarounds for primordial thread,
+//      and probably need to add more. But reliability wise this is still significantly
+//      better as most people are using standard launcher. Also, unlike standard java
+//      launcher, customers have full control of native launcher. For example, if they
+//      wish to use larger stack on Windows, they could simply rebuild their launcher
+//      with larger stack size.
         return ContinueInNewThread(ifn, threadStackSize, argc, argv, mode, what, ret);
     }
 }

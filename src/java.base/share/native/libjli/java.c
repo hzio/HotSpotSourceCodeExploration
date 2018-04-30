@@ -258,6 +258,8 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
     }
 
     /*
+     * 确保运行适当的JRE
+     *
      * SelectVersion() has several responsibilities:
      *
      *  1) Disallow specification of another JRE.  With 1.9, another
@@ -269,6 +271,8 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
      */
     SelectVersion(argc, argv, &main_class);
 
+    // 创建运行环境，如检查系统使用的数据模型（32bit、64bit），获取使用的JRE路径，找到jvm.cfg解析已知的vm类型
+    // 设置新的LD_LIBRARY_PATH变量
     CreateExecutionEnvironment(&argc, &argv,
                                jrepath, sizeof(jrepath),
                                jvmpath, sizeof(jvmpath),
@@ -285,6 +289,12 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
         start = CounterGet();
     }
 
+    // 加载JVM
+    // 通过jvmpath找到libjvm.so 返回以下方法
+    // JNI_CreateJavaVM
+    // JNI_GetDefaultJavaVMInitArgs
+    // GetCreatedJavaVMs
+    // 的符号地址返回，挂载到InvocationFunctions以便后续调用
     if (!LoadJavaVM(jvmpath, &ifn)) {
         return(6);
     }
@@ -300,8 +310,17 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
     --argc;
 
     if (IsJavaArgs()) {
+        // 转换命令行参数 如：javac -cp foo:foo/"*" -J-ms32m
         /* Preprocess wrapper arguments */
         TranslateApplicationArgs(jargc, jargv, &argc, &argv);
+
+        /*
+         * 添加了三个VM选项
+         * -Denv.class.path 用户设置的CLASSPATH变量，如果CLASSPATH显式设置了tools.jar
+         *  				则可以反编译VM的工具类sun.tools.*
+         * -Dapplication.home 应用程序目录
+         * -Djava.class.path 应用程序的类文件目录
+         */
         if (!AddApplicationOptions(appclassc, appclassv)) {
             return(1);
         }
@@ -313,7 +332,9 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
         }
     }
 
-    /* Parse command line options; if the return value of
+    /* 解析命令行参数-jar -cp、-version、-*path、-X*等参数
+     *
+     * Parse command line options; if the return value of
      * ParseArguments is false, the program should exit.
      */
     if (!ParseArguments(&argc, &argv, &mode, &what, &ret, jrepath))
@@ -321,6 +342,7 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argc */
         return(ret);
     }
 
+    // 设置classpath
     /* Override class path if -jar flag was specified */
     if (mode == LM_JAR) {
         SetClassPath(what);     /* Override class path */
@@ -406,6 +428,9 @@ JavaMain(void * _args)
 
     RegisterThread();
 
+    // ================================
+    //          初始化虚拟机
+    // ================================
     /* Initialize the virtual machine */
     start = CounterGet();
     if (!InitializeJVM(&vm, &env, &ifn)) {
@@ -446,6 +471,7 @@ JavaMain(void * _args)
         LEAVE();
     }
 
+    // 如果输入了-version或-showversion参数
     if (printVersion || showVersion) {
         PrintJavaVersion(env, showVersion);
         CHECK_EXCEPTION_LEAVE(0);
@@ -454,6 +480,7 @@ JavaMain(void * _args)
         }
     }
 
+    // 如果jar文件和类名均未指定则输出默认usage信息
     /* If the user specified neither a class name nor a JAR file */
     if (printXUsage || printUsage || what == 0 || mode == LM_UNKNOWN) {
         PrintUsage(env, printXUsage);
@@ -482,6 +509,8 @@ JavaMain(void * _args)
     ret = 1;
 
     /*
+     * 加载Java程序的main方法，如果没找到则退出
+     *
      * Get the application's main class. It also checks if the main
      * method exists.
      *
@@ -508,6 +537,8 @@ JavaMain(void * _args)
     mainClass = LoadMainClass(env, mode, what);
     CHECK_EXCEPTION_NULL_LEAVE(mainClass);
     /*
+     * 获取程序主类Class对象
+     *
      * In some cases when launching an application that needs a helper, e.g., a
      * JavaFX application with no main method, the mainClass will not be the
      * applications own main class but rather a helper class. To keep things
@@ -516,6 +547,7 @@ JavaMain(void * _args)
     appClass = GetApplicationClass(env);
     NULL_CHECK_RETURN_VALUE(appClass, -1);
 
+    // 构建main方法参数列表
     /* Build platform specific argument array */
     mainArgs = CreateApplicationArgs(env, argv, argc);
     CHECK_EXCEPTION_NULL_LEAVE(mainArgs);
@@ -536,6 +568,8 @@ JavaMain(void * _args)
     CHECK_EXCEPTION_LEAVE(1);
 
     /*
+     * 获取main方法ID
+     *
      * The LoadMainClass not only loads the main class, it will also ensure
      * that the main method's signature is correct, therefore further checking
      * is not required. The main method is invoked here so that extraneous java
@@ -545,15 +579,19 @@ JavaMain(void * _args)
                                        "([Ljava/lang/String;)V");
     CHECK_EXCEPTION_NULL_LEAVE(mainID);
 
+    // 调用main方法
     /* Invoke main method. */
     (*env)->CallStaticVoidMethod(env, mainClass, mainID, mainArgs);
 
     /*
+     * 如果有异常抛出，程序将返回非零结束码
+     *
      * The launcher's exit code (in the absence of calls to
      * System.exit) will be non-zero if main threw an exception.
      */
     ret = (*env)->ExceptionOccurred(env) == NULL ? 0 : 1;
 
+    // 退出
     LEAVE();
 }
 
@@ -2287,6 +2325,7 @@ ContinueInNewThread(InvocationFunctions* ifn, jlong threadStackSize,
 {
 
     /*
+     * 指定线程大小
      * If user doesn't specify stack size, check if VM has a preference.
      * Note that HotSpot no longer supports JNI_VERSION_1_1 but it will
      * return its default stack size through the init args structure.
@@ -2311,6 +2350,7 @@ ContinueInNewThread(InvocationFunctions* ifn, jlong threadStackSize,
       args.what = what;
       args.ifn = *ifn;
 
+      // 在新线程中执行
       rslt = ContinueInNewThread0(JavaMain, threadStackSize, (void*)&args);
       /* If the caller has deemed there is an error we
        * simply return that, otherwise we return the value of
