@@ -1643,6 +1643,7 @@ jint G1CollectedHeap::initialize_concurrent_refinement() {
   return ecode;
 }
 
+// G1CollectedHeap初始化
 jint G1CollectedHeap::initialize() {
   CollectedHeap::pre_initialize();
   os::enable_vtime();
@@ -1667,6 +1668,7 @@ jint G1CollectedHeap::initialize() {
   Universe::check_alignment(max_byte_size, HeapRegion::GrainBytes, "g1 heap");
   Universe::check_alignment(max_byte_size, heap_alignment, "g1 heap");
 
+  // 申请Java堆内存及确定CompressedOops模式
   // Reserve the maximum.
 
   // When compressed oops are enabled, the preferred heap base
@@ -1683,8 +1685,10 @@ jint G1CollectedHeap::initialize() {
   ReservedSpace heap_rs = Universe::reserve_heap(max_byte_size,
                                                  heap_alignment);
 
+  // 初始化申请的内存区域
   initialize_reserved_region((HeapWord*)heap_rs.base(), (HeapWord*)(heap_rs.base() + heap_rs.size()));
 
+  // 为整个保留区域创建barrier
   // Create the barrier set for the entire reserved region.
   G1SATBCardTableLoggingModRefBS* bs
     = new G1SATBCardTableLoggingModRefBS(reserved_region());
@@ -1692,12 +1696,14 @@ jint G1CollectedHeap::initialize() {
   assert(bs->is_a(BarrierSet::G1SATBCTLogging), "sanity");
   set_barrier_set(bs);
 
+  // 创建热卡缓存
   // Create the hot card cache.
   _hot_card_cache = new G1HotCardCache(this);
 
   // Carve out the G1 part of the heap.
   ReservedSpace g1_rs = heap_rs.first_part(max_byte_size);
   size_t page_size = UseLargePages ? os::large_page_size() : os::vm_page_size();
+  // 创建mapper
   G1RegionToSpaceMapper* heap_storage =
     G1RegionToSpaceMapper::create_mapper(g1_rs,
                                          g1_rs.size(),
@@ -1767,6 +1773,7 @@ jint G1CollectedHeap::initialize() {
     _humongous_reclaim_candidates.initialize(start, end, granularity);
   }
 
+  // 创建G1ConcurrentMark数据结构和线程
   // Create the G1ConcurrentMark data structure and thread.
   // (Must do this late, so that "max_regions" is defined.)
   _cm = new G1ConcurrentMark(this, prev_bitmap_storage, next_bitmap_storage);
@@ -1782,6 +1789,7 @@ jint G1CollectedHeap::initialize() {
     return JNI_ENOMEM;
   }
 
+  // 执行委托给内存（G1）策略的所有初始化操作
   // Perform any initialization actions delegated to the policy.
   g1_policy()->init(this, &_collection_set);
 

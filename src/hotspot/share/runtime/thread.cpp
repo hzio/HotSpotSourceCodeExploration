@@ -3486,40 +3486,64 @@ void Threads::initialize_jsr292_core_classes(TRAPS) {
 jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   extern void JDK_Version_init();
 
-  // Preinitialize version info.
+  // 版本信息初始化
   VM_Version::early_initialize();
 
-  // Check version
+  // 检查JNI版本
   if (!is_supported_jni_version(args->version)) return JNI_EVERSION;
 
+  // 初始化TLS
   // Initialize library-based TLS
   ThreadLocalStorage::init();
 
+  // 初始化系统输出流模块
   // Initialize the output stream module
   ostream_init();
 
+  // 处理Java启动参数，如-Dsun.java.launcher*
   // Process java launcher properties.
   Arguments::process_sun_java_launcher_properties(args);
 
+  // 初始化操作系统模块，如页大小，处理器数量，系统时钟等
   // Initialize the os module
   os::init();
 
+  // 启动VM创建计时器
   // Record VM creation timing statistics
   TraceVmCreationTime create_vm_timer;
   create_vm_timer.start();
 
+  // 初始化系统属性，其中分为【可读属性】和【可读写属性】
+  // 可读属性：
+  // java.vm.specification.name
+  // java.vm.version
+  // java.vm.name
+  // java.vm.info
+  // 可读写属性：
+  // java.ext.dirs
+  // java.endorsed.dirs
+  // sun.boot.library.path
+  // java.library.path
+  // java.home
+  // sun.boot.class.path
+  // java.class.path
   // Initialize system properties.
   Arguments::init_system_properties();
 
+  // JDK版本初始化
   // So that JDK version can be used as a discriminator when parsing arguments
   JDK_Version_init();
 
+  // 设置java.vm.specification.vendor
+  // java.vm.specification.version和java.vm.vendor属性
   // Update/Initialize System properties after JDK version number is known
   Arguments::init_version_specific_system_properties();
 
+  // 初始化日志配置
   // Make sure to initialize log configuration *before* parsing arguments
   LogConfiguration::initialize(create_vm_timer.begin_time());
 
+  // 解析启动参数，如-XX:Flags=、-XX:+PrintVMOptions、-XX:+PrintFlagsInitial etc.
   // Parse arguments
   jint parse_result = Arguments::parse(args);
   if (parse_result != JNI_OK) return parse_result;
@@ -3558,6 +3582,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   jint adjust_after_os_result = Arguments::adjust_after_os();
   if (adjust_after_os_result != JNI_OK) return adjust_after_os_result;
 
+  // 初始化GC日志输出流，用来处理-Xloggc参数
   // Initialize output stream logging
   ostream_init_log();
 
@@ -3567,6 +3592,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
     convert_vm_init_libraries_to_agents();
   }
 
+  // 初始化agent
   // Launch -agentlib/-agentpath and converted -Xrun agents
   if (Arguments::init_agents_at_startup()) {
     create_vm_init_agents();
@@ -3577,6 +3603,17 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   _number_of_threads = 0;
   _number_of_non_daemon_threads = 0;
 
+  /*
+   * ========================================
+   * 初始化VM全局数据结构及系统类
+   * ========================================
+   * 初始化Java基础类型
+   * 初始化对象OOP大小
+   * 初始化锁
+   * 初始化chunkpool
+   * 初始化性能数据统计模块
+   * ========================================
+   */
   // Initialize global data structures and create system classes in heap
   vm_init_globals();
 
@@ -3609,10 +3646,24 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // crash Linux VM, see notes in os_linux.cpp.
   main_thread->create_stack_guard_pages();
 
+  // 初始化Java级别的对象同步器子系统
   // Initialize Java-Level synchronization subsystem
   ObjectMonitor::Initialize();
 
-  // Initialize global modules
+  /*
+   * 初始化全局模块
+   * ========================================
+   * 1. 初始化management模块
+   * 2. 初始化字节码/操作符表
+   * 3. 初始化ClassLoader
+   * 4. 根据命令行参数决定编译策略
+   * 5. 代码缓存初始化
+   * 6. 虚拟机版本初始化
+   * 7. OS全局初始化
+   * ....
+   *
+   * ========================================
+   */
   jint status = init_globals();
   if (status != JNI_OK) {
     delete main_thread;
@@ -3675,6 +3726,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Notify JVMTI agents that VM has started (JNI is up) - nop if no agents.
   JvmtiExport::post_early_vm_start();
 
+  // 初始化Java的lang包
   initialize_java_lang_classes(main_thread, CHECK_JNI_ERR);
 
   // We need this for ClassDataSharing - the initial vm.info property is set
@@ -3701,6 +3753,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   Management::record_vm_init_completed();
 #endif // INCLUDE_MANAGEMENT
 
+  // 启动一个叫做“信号分发器”的线程用来处理进程间的信号
+  // 比如通过jstack获取一个jvm实例的栈信息
   // Signal Dispatcher needs to be started before VMInit event is posted
   os::signal_init(CHECK_JNI_ERR);
 
@@ -3742,6 +3796,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // may be attached late and JVMTI must track phases of VM execution
   JvmtiExport::enter_start_phase();
 
+  // 通知JVMTI agents虚拟机初始化开始
   // Notify JVMTI agents that VM has started (JNI is up) - nop if no agents.
   JvmtiExport::post_vm_start();
 
@@ -3774,6 +3829,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // may be attached late and JVMTI must track phases of VM execution
   JvmtiExport::enter_live_phase();
 
+  // 通知JVMTI agents虚拟机初始化完成
   // Notify JVMTI agents that VM initialization is complete - nop if no agents.
   JvmtiExport::post_vm_initialized();
 
@@ -3796,6 +3852,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   StatSampler::engage();
   if (CheckJNICalls)                  JniPeriodicChecker::engage();
 
+  // 初始化偏向锁
   BiasedLocking::init();
 
 #if INCLUDE_RTM_OPT

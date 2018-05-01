@@ -687,13 +687,29 @@ jint universe_init() {
 
   JavaClasses::compute_hard_coded_offsets();
 
+  /*
+   * ==============================================================
+   *                  初始化堆空间
+   * ==============================================================
+   * 在JDK7以前的版本中默认使用CMS收集器，这里会创建及初始化各分区代，设定空间比例大小，回收策略等
+   * 流程：根据启动参数决定使用的回收策略，初始化回收策略时会指定所使用的代规范，
+   * 	  最后根据规范创建对应类型的回收堆。
+   *      i.e. arguments -> policy -> spec -> heap
+   *
+   * 在最新的JDK10中默认使用G1作为默认收集器，在JEP248里就提议，参见http://openjdk.java.net/jeps/248，
+   * 虽然也采用分代算法，但由连续内存的年轻（老）代改为非连续的小块region（单个region连续）
+   * ==============================================================
+   */
   jint status = Universe::initialize_heap();
   if (status != JNI_OK) {
     return status;
   }
 
+  // 初始化元数据空间
+  // 在JDK8里移除了PermGen，就是加入了它
   Metaspace::global_initialize();
 
+  // 初始化AOT loader
   AOTLoader::universe_init();
 
   // Checks 'AfterMemoryInit' constraints.
@@ -701,6 +717,7 @@ jint universe_init() {
     return JNI_EINVAL;
   }
 
+  // 为元数据申请内存空间
   // Create memory for metadata.  Must be after initializing heap for
   // DumpSharedSpaces.
   ClassLoaderData::init_null_class_loader_data();
@@ -725,7 +742,9 @@ jint universe_init() {
   } else
 #endif
   {
+    // 创建符号表
     SymbolTable::create_table();
+    // 创建字符串缓存池
     StringTable::create_table();
 
 #if INCLUDE_CDS
@@ -738,11 +757,12 @@ jint universe_init() {
     Universe::initialize_verify_flags();
   }
 
+  // 创建方法表
   ResolvedMethodTable::create_table();
 
   return JNI_OK;
 }
-
+// 根据GC策略创建堆，此处默认使用G1
 CollectedHeap* Universe::create_heap() {
   assert(_collectedHeap == NULL, "Heap already created");
 #if !INCLUDE_ALL_GCS
@@ -756,6 +776,7 @@ CollectedHeap* Universe::create_heap() {
   if (UseParallelGC) {
     return Universe::create_heap_with_policy<ParallelScavengeHeap, GenerationSizer>();
   } else if (UseG1GC) {
+
     return Universe::create_heap_with_policy<G1CollectedHeap, G1CollectorPolicy>();
   } else if (UseConcMarkSweepGC) {
     return Universe::create_heap_with_policy<GenCollectedHeap, ConcurrentMarkSweepPolicy>();
@@ -779,11 +800,21 @@ CollectedHeap* Universe::create_heap() {
 jint Universe::initialize_heap() {
   jint status = JNI_ERR;
 
+
+  // 创建堆空间
   _collectedHeap = create_heap_ext();
   if (_collectedHeap == NULL) {
     _collectedHeap = create_heap();
   }
 
+  /*
+   * ==========================================
+   *        初始化堆空间
+   * ==========================================
+   * 这里会调用G1CollectedHeap::initialize()方法，
+   * 真正向操作系统申请内存
+   * ==========================================
+   */
   status = _collectedHeap->initialize();
   if (status != JNI_OK) {
     return status;
@@ -793,6 +824,7 @@ jint Universe::initialize_heap() {
   ThreadLocalAllocBuffer::set_max_size(Universe::heap()->max_tlab_size());
 
 #ifdef _LP64
+  // 在LP64数据模型下是否开启对象指针压缩
   if (UseCompressedOops) {
     // Subtract a page because something can get allocated at heap base.
     // This also makes implicit null checking work, because the
@@ -833,7 +865,7 @@ jint Universe::initialize_heap() {
 
   // We will never reach the CATCH below since Exceptions::_throw will cause
   // the VM to exit if an exception is thrown during initialization
-
+  // 如果使用TLAB
   if (UseTLAB) {
     assert(Universe::heap()->supports_tlab_allocation(),
            "Should support thread-local allocation buffers");
@@ -877,9 +909,11 @@ ReservedSpace Universe::reserve_heap(size_t heap_size, size_t alignment) {
       || UseParallelGC
       || use_large_pages, "Wrong alignment to use large pages");
 
+  // 申请内存空间
   // Now create the space.
   ReservedHeapSpace total_rs(total_reserved, alignment, use_large_pages);
 
+  // 如果申请成功
   if (total_rs.is_reserved()) {
     assert((total_reserved == total_rs.size()) && ((uintptr_t)total_rs.base() % alignment == 0),
            "must be exactly of required size and alignment");

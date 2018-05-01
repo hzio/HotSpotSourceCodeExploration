@@ -80,11 +80,16 @@ TimeStamp Management::_stamp;
 
 void management_init() {
 #if INCLUDE_MANAGEMENT
+  // 初始化management模块，主要负责JMX及记录虚拟机运行情况等功能
   Management::init();
+  // 初始化线程服务，主要负责线程和同步子系统的性能监控和管理服务
   ThreadService::init();
+  // 初始化运行时服务
   RuntimeService::init();
+  // 初始化类加载服务，主要提供类加载子系统的系统监控和管理支持功能
   ClassLoadingService::init();
 #else
+  // 初始化线程服务，for java.lang.management API support
   ThreadService::init();
 #endif // INCLUDE_MANAGEMENT
 }

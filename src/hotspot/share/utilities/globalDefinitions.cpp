@@ -159,6 +159,7 @@ void basic_types_init() {
   if(JavaPriority10_To_OSPriority != -1 )
     os::java_to_os_priority[10] = JavaPriority10_To_OSPriority;
 
+  // 如果使用对象OOP压缩
   // Set the size of basic types here (after argument parsing but before
   // stub generation).
   if (UseCompressedOops) {
