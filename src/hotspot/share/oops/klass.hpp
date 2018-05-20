@@ -108,6 +108,7 @@ class Klass : public Metadata {
   // secondary supers, else is &_primary_supers[depth()].
   juint       _super_check_offset;
 
+  // 类名
   // Class name.  Instance classes: java/lang/String, etc.  Array classes: [I,
   // [Ljava/lang/String;, etc.  Set to zero for all other kinds of classes.
   Symbol*     _name;
@@ -118,8 +119,11 @@ class Klass : public Metadata {
   Array<Klass*>* _secondary_supers;
   // Ordered list of all primary supertypes
   Klass*      _primary_supers[_primary_super_limit];
+
+  // java.lang.Class镜像类
   // java/lang/Class instance mirroring this class
   oop       _java_mirror;
+  // 父类
   // Superclass
   Klass*      _super;
   // First subclass (NULL if none); _subklass->next_sibling() is next one
@@ -130,21 +134,26 @@ class Klass : public Metadata {
   // All klasses loaded by a class loader are chained through these links
   Klass*      _next_link;
 
+  // 加载该类的类加载器
   // The VM's representation of the ClassLoader used to load this class.
   // Provide access the corresponding instance java.lang.ClassLoader.
   ClassLoaderData* _class_loader_data;
 
+  // 修饰符
   jint        _modifier_flags;  // Processed access flags, for use by Class.getModifiers.
+  // 访问权限
   AccessFlags _access_flags;    // Access flags. The class/interface distinction is stored here.
 
   TRACE_DEFINE_TRACE_ID_FIELD;
 
+  // 偏向锁实现
   // Biased locking implementation and statistics
   // (the 64-bit chunk goes first, to avoid some fragmentation)
   jlong    _last_biased_lock_bulk_revocation_time;
   markOop  _prototype_header;   // Used when biased locking is both enabled and disabled for this type
   jint     _biased_lock_revocation_count;
 
+  // 虚拟表长度
   // vtable length
   int _vtable_len;
 

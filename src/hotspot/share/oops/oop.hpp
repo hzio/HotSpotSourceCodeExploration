@@ -59,8 +59,11 @@ class oopDesc {
   friend class VMStructs;
   friend class JVMCIVMStructs;
  private:
+  // 对象头
   volatile markOop _mark;
+  // 元数据
   union _metadata {
+    // 对应的Klass对象
     Klass*      _klass;
     narrowKlass _compressed_klass;
   } _metadata;
