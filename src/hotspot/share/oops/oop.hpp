@@ -65,6 +65,7 @@ class oopDesc {
   union _metadata {
     // 对应的Klass对象
     Klass*      _klass;
+    // 压缩后的klass
     narrowKlass _compressed_klass;
   } _metadata;
 
