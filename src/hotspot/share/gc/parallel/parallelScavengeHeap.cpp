@@ -470,6 +470,7 @@ bool ParallelScavengeHeap::can_elide_initializing_store_barrier(oop new_obj) {
   return is_in_young(new_obj);
 }
 
+// 并行回收
 // This method is used by System.gc() and JVMTI.
 void ParallelScavengeHeap::collect(GCCause::Cause cause) {
   assert(!Heap_lock->owned_by_self(),

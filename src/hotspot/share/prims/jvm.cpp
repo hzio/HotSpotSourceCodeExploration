@@ -443,6 +443,7 @@ JVM_END
 JVM_ENTRY_NO_ENV(void, JVM_GC(void))
   JVMWrapper("JVM_GC");
   if (!DisableExplicitGC) {
+    // 调用具体堆实现的collect方法
     Universe::heap()->collect(GCCause::_java_lang_system_gc);
   }
 JVM_END

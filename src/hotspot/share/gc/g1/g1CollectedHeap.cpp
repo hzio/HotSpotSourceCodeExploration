@@ -2134,6 +2134,7 @@ void G1CollectedHeap::increment_old_marking_cycles_completed(bool concurrent) {
   FullGCCount_lock->notify_all();
 }
 
+// G1并发回收
 void G1CollectedHeap::collect(GCCause::Cause cause) {
   assert_heap_not_locked();
 

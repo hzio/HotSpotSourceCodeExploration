@@ -760,6 +760,7 @@ HeapWord** GenCollectedHeap::end_addr() const {
   return _young_gen->end_addr();
 }
 
+// CMS分代并发回收
 // public collection interfaces
 
 void GenCollectedHeap::collect(GCCause::Cause cause) {

@@ -160,6 +160,7 @@ bool TenuredGeneration::promotion_attempt_is_safe(size_t max_promotion_in_bytes)
   return res;
 }
 
+// 串行回收（年老代）
 void TenuredGeneration::collect(bool   full,
                                 bool   clear_all_soft_refs,
                                 size_t size,

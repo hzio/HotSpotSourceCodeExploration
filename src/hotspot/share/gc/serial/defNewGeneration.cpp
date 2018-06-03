@@ -579,6 +579,7 @@ void DefNewGeneration::adjust_desired_tenuring_threshold() {
   age_table()->print_age_table(_tenuring_threshold);
 }
 
+// 串行收集（年轻代）
 void DefNewGeneration::collect(bool   full,
                                bool   clear_all_soft_refs,
                                size_t size,
@@ -593,6 +594,7 @@ void DefNewGeneration::collect(bool   full,
 
   _old_gen = gch->old_gen();
 
+  // 如果下个代空间不足以容纳当前代空间中即将晋升的对象，则标记让下个代空间先进行回收
   // If the next generation is too full to accommodate promotion
   // from this generation, pass on collection; let the next generation
   // do it.
