@@ -2973,10 +2973,11 @@ static Method* find_prefixed_native(Klass* k, Symbol* name, Symbol* signature, T
     name_str = trial_name_str;
   }
 #endif // INCLUDE_JVMTI
-  return NULL; // not found
+  return NULL; // not foundfind_method_impl
 }
 
 static bool register_native(Klass* k, Symbol* name, Symbol* signature, address entry, TRAPS) {
+  // 找到对应的方法
   Method* method = k->lookup_method(name, signature);
   if (method == NULL) {
     ResourceMark rm;
@@ -2986,6 +2987,7 @@ static bool register_native(Klass* k, Symbol* name, Symbol* signature, address e
     THROW_MSG_(vmSymbols::java_lang_NoSuchMethodError(), st.as_string(), false);
   }
   if (!method->is_native()) {
+    // 检查JVMTI是否指定native方法前缀
     // trying to register to a non-native method, see if a JVM TI agent has added prefix(es)
     method = find_prefixed_native(k, name, signature, THREAD);
     if (method == NULL) {
@@ -2998,6 +3000,7 @@ static bool register_native(Klass* k, Symbol* name, Symbol* signature, address e
   }
 
   if (entry != NULL) {
+    // 设置本为本地方法
     method->set_native_function(entry,
       Method::native_bind_event_is_interesting);
   } else {
@@ -3014,7 +3017,7 @@ static bool register_native(Klass* k, Symbol* name, Symbol* signature, address e
 
 DT_RETURN_MARK_DECL(RegisterNatives, jint
                     , HOTSPOT_JNI_REGISTERNATIVES_RETURN(_ret_ref));
-
+  // 注册Java系统类中的本地方法
 JNI_ENTRY(jint, jni_RegisterNatives(JNIEnv *env, jclass clazz,
                                     const JNINativeMethod *methods,
                                     jint nMethods))
@@ -3023,6 +3026,7 @@ JNI_ENTRY(jint, jni_RegisterNatives(JNIEnv *env, jclass clazz,
   jint ret = 0;
   DT_RETURN_MARK(RegisterNatives, jint, (const jint&)ret);
 
+  // 加载对应的类并转换成Klass对象
   Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(clazz));
 
   for (int index = 0; index < nMethods; index++) {
@@ -3033,9 +3037,12 @@ JNI_ENTRY(jint, jni_RegisterNatives(JNIEnv *env, jclass clazz,
     // The class should have been loaded (we have an instance of the class
     // passed in) so the method and signature should already be in the symbol
     // table.  If they're not there, the method doesn't exist.
+    // 方法名
     TempNewSymbol  name = SymbolTable::probe(meth_name, meth_name_len);
+    // 方法签名
     TempNewSymbol  signature = SymbolTable::probe(meth_sig, (int)strlen(meth_sig));
 
+    // 如果没找到该方法则抛出java.lang.NoSuchMethodError()
     if (name == NULL || signature == NULL) {
       ResourceMark rm;
       stringStream st;
@@ -3044,6 +3051,7 @@ JNI_ENTRY(jint, jni_RegisterNatives(JNIEnv *env, jclass clazz,
       THROW_MSG_(vmSymbols::java_lang_NoSuchMethodError(), st.as_string(), -1);
     }
 
+    // 执行注册本地方法
     bool res = register_native(k, name, signature,
                                (address) methods[index].fnPtr, THREAD);
     if (!res) {

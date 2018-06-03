@@ -87,6 +87,7 @@ static JNINativeMethod methods[] = {
 JNIEXPORT void JNICALL
 Java_java_lang_Class_registerNatives(JNIEnv *env, jclass cls)
 {
+    // 注册本地方法
     methods[1].fnPtr = (void *)(*env)->GetSuperclass;
     (*env)->RegisterNatives(env, cls, methods,
                             sizeof(methods)/sizeof(JNINativeMethod));
