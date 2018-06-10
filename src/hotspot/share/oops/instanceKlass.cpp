@@ -2300,6 +2300,7 @@ const char* InstanceKlass::signature_name() const {
   return dest;
 }
 
+// 根据全限定名获取包名
 // Used to obtain the package name from a fully qualified class name.
 Symbol* InstanceKlass::package_from_name(const Symbol* name, TRAPS) {
   if (name == NULL) {

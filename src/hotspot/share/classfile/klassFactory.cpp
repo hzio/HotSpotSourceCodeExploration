@@ -173,7 +173,7 @@ static ClassFileStream* check_class_file_load_hook(ClassFileStream* stream,
   return stream;
 }
 
-
+// 从class文件流创建InstanceKlass
 InstanceKlass* KlassFactory::create_from_stream(ClassFileStream* stream,
                                                 Symbol* name,
                                                 ClassLoaderData* loader_data,
@@ -202,6 +202,7 @@ InstanceKlass* KlassFactory::create_from_stream(ClassFileStream* stream,
                                         CHECK_NULL);
   }
 
+  // 解析class文件
   ClassFileParser parser(stream,
                          name,
                          loader_data,

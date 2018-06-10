@@ -60,6 +60,7 @@ class PackageEntryTable;
 class DictionaryEntry;
 class Dictionary;
 
+// 创建用于遍历类加载器数据的GC root
 // GC root for walking class loader data created
 
 class ClassLoaderDataGraph : public AllStatic {

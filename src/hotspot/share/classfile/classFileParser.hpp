@@ -45,6 +45,7 @@ class InstanceKlass;
 class Symbol;
 class TempNewSymbol;
 
+// class文件解析器
 // Parser for for .class files
 //
 // The bytes describing the class file structure is read from a Stream object

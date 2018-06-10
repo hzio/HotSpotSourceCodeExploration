@@ -307,13 +307,14 @@ Symbol* SymbolTable::lookup(const char* name, int len, TRAPS) {
 
   Symbol* s = the_table()->lookup(index, name, len, hashValue);
 
+  // 找到则直接返回
   // Found
   if (s != NULL) return s;
 
-  // Grab SymbolTable_lock first.
+  // 先获取SymbolTable_lock
   MutexLocker ml(SymbolTable_lock, THREAD);
 
-  // Otherwise, add to symbol to table
+  // 然后把该类加入符号表
   return the_table()->basic_add(index, (u1*)name, len, hashValue, true, THREAD);
 }
 

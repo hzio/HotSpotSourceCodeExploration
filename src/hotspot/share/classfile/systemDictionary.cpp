@@ -184,7 +184,7 @@ bool SystemDictionary::is_platform_class_loader(oop class_loader) {
 // Resolving of classes
 
 // Forwards to resolve_or_null
-
+// 根据指定的类名和加载器返回一个Class对象，必要情况下需要加载该类。如果未找到该类则抛出，NoClassDefFoundError或ClassNotFoundException
 Klass* SystemDictionary::resolve_or_fail(Symbol* class_name, Handle class_loader, Handle protection_domain, bool throw_error, TRAPS) {
   Klass* klass = resolve_or_null(class_name, class_loader, protection_domain, THREAD);
   if (HAS_PENDING_EXCEPTION || klass == NULL) {
@@ -248,6 +248,7 @@ Klass* SystemDictionary::resolve_or_null(Symbol* class_name, Handle class_loader
                                    class_name->utf8_length() - 2, CHECK_NULL);
     return resolve_instance_class_or_null(name, class_loader, protection_domain, THREAD);
   } else {
+    // 解析实例类
     return resolve_instance_class_or_null(class_name, class_loader, protection_domain, THREAD);
   }
 }
@@ -692,6 +693,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
   // Make sure we are synchronized on the class loader before we proceed
   Handle lockObject = compute_loader_lock_object(class_loader, THREAD);
   check_loader_lock_contention(lockObject, THREAD);
+  // 获取对象锁
   ObjectLocker ol(lockObject, THREAD, DoObjectLock);
 
   // Check again (after locking) if class already exist in SystemDictionary
@@ -704,12 +706,14 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
 
   {
     MutexLocker mu(SystemDictionary_lock, THREAD);
+    // 查找类
     InstanceKlass* check = find_class(d_index, d_hash, name, dictionary);
     if (check != NULL) {
       // Klass is already loaded, so just return it
       class_has_been_loaded = true;
       k = check;
     } else {
+      // 查找该类是否在placeholder table中
       placeholder = placeholders()->get_entry(p_index, p_hash, name, loader_data);
       if (placeholder && placeholder->super_load_in_progress()) {
          super_load_in_progress = true;
@@ -721,7 +725,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     }
   }
 
-  // If the class is in the placeholder table, class loading is in progress
+  // 如果该类在placeholder table中，则说明类加载进行中
   if (super_load_in_progress && havesupername==true) {
     k = handle_parallel_super_load(name,
                                    superclassname,
@@ -766,6 +770,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     //    Allow parallel classloading of a class/classloader pair
 
     {
+      // 获取锁
       MutexLocker mu(SystemDictionary_lock, THREAD);
       if (class_loader.is_null() || !is_parallelCapable(class_loader)) {
         PlaceholderEntry* oldprobe = placeholders()->get_entry(p_index, p_hash, name, loader_data);
@@ -830,8 +835,11 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     }
 
     if (!class_has_been_loaded) {
-
-      // Do actual loading
+      // =====================================
+      //
+      //      执行实例加载动作
+      //
+      // =====================================
       k = load_instance_class(name, class_loader, THREAD);
 
       // For UnsyncloadClass only
@@ -873,6 +881,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
               k, class_loader, THREAD);
           }
 
+          // 通知JVMTI类加载事件
           if (JvmtiExport::should_post_class_load()) {
             Thread *thread = THREAD;
             assert(thread->is_Java_thread(), "thread->is_Java_thread()");
@@ -1096,6 +1105,7 @@ InstanceKlass* SystemDictionary::resolve_from_stream(Symbol* class_name,
 
   ClassLoaderData* loader_data = register_loader(class_loader, CHECK_NULL);
 
+  // 确认同步操作
   // Make sure we are synchronized on the class loader before we proceed
   Handle lockObject = compute_loader_lock_object(class_loader, THREAD);
   check_loader_lock_contention(lockObject, THREAD);
@@ -1434,14 +1444,28 @@ void SystemDictionary::clear_invoke_method_table() {
 }
 #endif // INCLUDE_CDS
 
+// ===================================================================================
+//
+//              加载实例class，这里有两种方式：
+// ===================================================================================
+//
+// 1、如果classloader为null则说明是加载系统类，使用bootstrap loader
+//    调用方式：直接调用ClassLoader::load_class()加载该类
+//
+// 2、如果classloader不为null则说明是非系统类，使用ext/app/自定义 classloader
+//    调用方式：通过JavaCalls::call_virtual()调用Java方法ClassLoader.loadClass()加载该类
+//
+// ===================================================================================
 InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle class_loader, TRAPS) {
 
+  // 使用bootstrap加载器加载
   if (class_loader.is_null()) {
     ResourceMark rm;
     PackageEntry* pkg_entry = NULL;
     bool search_only_bootloader_append = false;
     ClassLoaderData *loader_data = class_loader_data(class_loader);
 
+    // 根据全限定名获取包名
     // Find the package in the boot loader's package entry table.
     TempNewSymbol pkg_name = InstanceKlass::package_from_name(class_name, CHECK_NULL);
     if (pkg_name != NULL) {
@@ -1509,6 +1533,11 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
     if (k == NULL) {
       // Use VM class loader
       PerfTraceTime vmtimer(ClassLoader::perf_sys_classload_time());
+      // =================================================================
+      //
+      //        使用bootstrap loader加载该类
+      //
+      // =================================================================
       k = ClassLoader::load_class(class_name, search_only_bootloader_append, CHECK_NULL);
     }
 
@@ -1528,7 +1557,22 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
     }
     return k;
   } else {
-    // Use user specified class loader to load class. Call loadClass operation on class_loader.
+    // =======================================================================================
+    //
+    // 使用用户指定的加载器加载该类，调用class_loader的loadClass操作方法，
+    // 最终返回一个标准的InstanceKlass，流程如下
+    //
+    // +-----------+  loadClass()   +---------------+  get_jobject()   +-------------+
+    // | className | -------------> |   JavaValue   | ---------------> |     oop     |
+    // +-----------+                +---------------+                  +-------------+
+    //                                                                       |
+    //                                                                       | as_Klass()
+    //                                                                       v
+    //                               +---------------+  cast()          +-------------+
+    //                               | InstanceKlass | <--------------- |    Klass    |
+    //                               +---------------+                  +-------------+
+    //
+    // =======================================================================================
     ResourceMark rm(THREAD);
 
     assert(THREAD->is_Java_thread(), "must be a JavaThread");
@@ -1575,6 +1619,12 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
                               string,
                               CHECK_NULL);
     } else {
+      // ===============================================================
+      //
+      // 调用ClassLoader.loadClass()方法加载该类，而最终会调用ClassLoader的native方法defineClass1()
+      // 其实现位于ClassLoader.c # Java_java_lang_ClassLoader_defineClass1()
+      //
+      // ===============================================================
       JavaCalls::call_virtual(&result,
                               class_loader,
                               spec_klass,
@@ -1585,8 +1635,10 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
     }
 
     assert(result.get_type() == T_OBJECT, "just checking");
+    // 获取oop对象
     oop obj = (oop) result.get_jobject();
 
+    // 如果不是基本类，则转换成对应的InstanceKlass
     // Primitive classes return null since forName() can not be
     // used to obtain any of the Class objects representing primitives or void
     if ((obj != NULL) && !(java_lang_Class::is_primitive(obj))) {
@@ -1595,6 +1647,7 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
       // the same as that requested.  This check is done for the bootstrap
       // loader when parsing the class file.
       if (class_name == k->name()) {
+        // 返回最终InstanceKlass
         return k;
       }
     }
