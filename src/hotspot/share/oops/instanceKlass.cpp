@@ -145,6 +145,7 @@ static inline bool is_class_loader(const Symbol* class_name,
   return false;
 }
 
+// 为新建的InstanceKlass分配内存空间
 InstanceKlass* InstanceKlass::allocate_instance_klass(const ClassFileParser& parser, TRAPS) {
   const int size = InstanceKlass::size(parser.vtable_size(),
                                        parser.itable_size(),
@@ -171,7 +172,8 @@ InstanceKlass* InstanceKlass::allocate_instance_klass(const ClassFileParser& par
       ik = new (loader_data, size, THREAD) InstanceClassLoaderKlass(parser);
     }
     else {
-      // normal
+
+      // 普通类
       ik = new (loader_data, size, THREAD) InstanceKlass(parser, InstanceKlass::_misc_kind_other);
     }
   }
@@ -190,6 +192,7 @@ InstanceKlass* InstanceKlass::allocate_instance_klass(const ClassFileParser& par
 
   const bool publicize = !parser.is_internal();
 
+  // 把当前类加入到classloader
   // Add all classes to our internal class loader list here,
   // including classes in the bootstrap (NULL) class loader.
   loader_data->add_class(ik, publicize);
@@ -394,6 +397,9 @@ void InstanceKlass::eager_initialize(Thread *thread) {
     // abort if the super class should be initialized
     if (!InstanceKlass::cast(super_klass)->is_initialized()) return;
 
+    // ============================================
+    // 执行初始化该指针
+    // ============================================
     // call body to expose the this pointer
     eager_initialize_impl();
   }
@@ -444,6 +450,11 @@ void InstanceKlass::eager_initialize_impl() {
   if (!is_not_initialized()) return;  // note: not equivalent to is_initialized()
 
   ClassState old_state = init_state();
+  // =====================================================
+  //
+  //     链接class
+  //
+  // =====================================================
   link_class_impl(true, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;
@@ -455,6 +466,10 @@ void InstanceKlass::eager_initialize_impl() {
     if (old_state != _init_state)
       set_init_state(old_state);
   } else {
+
+    // =====================================================
+    // class状态标记为fully_initialized
+    // =====================================================
     // linking successfull, mark class as initialized
     set_init_state(fully_initialized);
     fence_and_clear_init_lock();
@@ -541,7 +556,7 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
   assert(THREAD->is_Java_thread(), "non-JavaThread in link_class_impl");
   JavaThread* jt = (JavaThread*)THREAD;
 
-  // link super class before linking this class
+  // 在链接该类之前先链接父类
   Klass* super_klass = super();
   if (super_klass != NULL) {
     if (super_klass->is_interface()) {  // check if super class is an interface
@@ -557,10 +572,11 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
     }
 
     InstanceKlass* ik_super = InstanceKlass::cast(super_klass);
+    // 递归调用当前方法进行链接
     ik_super->link_class_impl(throw_verifyerror, CHECK_false);
   }
 
-  // link all interfaces implemented by this class before linking this class
+  // 在链接该类之前先链接该类实现的所有接口
   Array<Klass*>* interfaces = local_interfaces();
   int num_interfaces = interfaces->length();
   for (int index = 0; index < num_interfaces; index++) {
@@ -582,6 +598,7 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
                              jt->get_thread_stat()->perf_timers_addr(),
                              PerfClassTraceTime::CLASS_LINK);
 
+  // 验证 & 重写
   // verification & rewriting
   {
     HandleMark hm(THREAD);
@@ -614,9 +631,11 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
         SystemDictionaryShared::check_verification_constraints(this, CHECK_false);
       }
 
+      // 重写之后链接方法
       // relocate jsrs and link methods after they are all rewritten
       link_methods(CHECK_false);
 
+      // 方法重写后初始化虚拟表和接口表
       // Initialize the vtable and interface table after
       // methods have been rewritten since rewrite may
       // fabricate new Method*s.
@@ -628,7 +647,9 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
       if (!(is_shared() &&
             loader_data->is_the_null_class_loader_data())) {
         ResourceMark rm(THREAD);
+        // 初始化虚拟表
         vtable().initialize_vtable(true, CHECK_false);
+        // 初始化接口表
         itable().initialize_itable(true, CHECK_false);
       }
 #ifdef ASSERT
@@ -638,6 +659,7 @@ bool InstanceKlass::link_class_impl(bool throw_verifyerror, TRAPS) {
         // itable().verify(tty, true);
       }
 #endif
+      // class状态标记为linked
       set_init_state(linked);
       if (JvmtiExport::should_post_class_prepare()) {
         Thread *thread = THREAD;
@@ -755,6 +777,7 @@ void InstanceKlass::initialize_impl(TRAPS) {
     }
 
     // Step 6
+    // class状态标记为being_initialized
     set_init_state(being_initialized);
     set_init_thread(self);
   }

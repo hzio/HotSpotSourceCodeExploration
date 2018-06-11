@@ -33,6 +33,8 @@
 
 class ClassFileParser;
 
+// java.lang.Class专用的InstanceKlass
+
 // An InstanceMirrorKlass is a specialized InstanceKlass for
 // java.lang.Class instances.  These instances are special because
 // they contain the static fields of the class in addition to the

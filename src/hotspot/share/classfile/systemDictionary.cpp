@@ -1079,6 +1079,7 @@ InstanceKlass* SystemDictionary::parse_stream(Symbol* class_name,
 // Note: class_name can be NULL. In that case we do not know the name of
 // the class until we have parsed the stream.
 
+// 把一个klass加入系统（systemDictionary）
 InstanceKlass* SystemDictionary::resolve_from_stream(Symbol* class_name,
                                                      Handle class_loader,
                                                      Handle protection_domain,
@@ -1133,6 +1134,11 @@ InstanceKlass* SystemDictionary::resolve_from_stream(Symbol* class_name,
     if (st->buffer() == NULL) {
       return NULL;
     }
+    // ===============================================
+    //
+    // 解析class文件流并创建Klass
+    //
+    // ===============================================
     k = KlassFactory::create_from_stream(st,
                                          class_name,
                                          loader_data,
@@ -1149,6 +1155,7 @@ InstanceKlass* SystemDictionary::resolve_from_stream(Symbol* class_name,
   // Add class just loaded
   // If a class loader supports parallel classloading handle parallel define requests
   // find_or_define_instance_class may return a different InstanceKlass
+  // 如果支持并行加载
   if (is_parallelCapable(class_loader)) {
     InstanceKlass* defined_k = find_or_define_instance_class(h_name, class_loader, k, THREAD);
     if (!HAS_PENDING_EXCEPTION && defined_k != k) {
@@ -1158,6 +1165,14 @@ InstanceKlass* SystemDictionary::resolve_from_stream(Symbol* class_name,
       k = defined_k;
     }
   } else {
+    // ================================================================
+    //
+    // 如果不支持并行加载则直接更新systemDictionary，这里主要做两件事：
+    //
+    // 1、把新的class加入到systemDictionary
+    // 2、链接并初始化klass
+    //
+    // ================================================================
     define_instance_class(k, THREAD);
   }
 
@@ -1543,6 +1558,7 @@ InstanceKlass* SystemDictionary::load_instance_class(Symbol* class_name, Handle 
 
     // find_or_define_instance_class may return a different InstanceKlass
     if (k != NULL) {
+      // 把找到的InstanceKlass添加至systemDictionary
       InstanceKlass* defined_k =
         find_or_define_instance_class(class_name, class_loader, k, THREAD);
       if (!HAS_PENDING_EXCEPTION && defined_k != k) {
@@ -1662,6 +1678,8 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
   ClassLoaderData* loader_data = k->class_loader_data();
   Handle class_loader_h(THREAD, loader_data->class_loader());
 
+ // bootstrap loader和并行loader不需要获取锁
+ //
  // for bootstrap and other parallel classloaders don't acquire lock,
  // use placeholder token
  // If a parallelCapable class loader calls define_instance_class instead of
@@ -1673,6 +1691,8 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
          "define called without lock");
   }
 
+  // 检查类加载冲突
+  //
   // Check class-loading constraints. Throw exception if violation is detected.
   // Grabs and releases SystemDictionary_lock
   // The check_constraints/find_class call and update_dictionary sequence
@@ -1688,6 +1708,8 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
   int d_index = dictionary->hash_to_index(d_hash);
   check_constraints(d_index, d_hash, k, class_loader_h, true, CHECK);
 
+  // 调用Java方法ClassLoader#addClass()把该类注册到对应的classloader
+  //
   // Register class just loaded with class loader (placed in Vector)
   // Note we do this before updating the dictionary, as this can
   // fail with an OutOfMemoryError (if it does, we will *not* put this
@@ -1701,6 +1723,8 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
     JavaCalls::call(&result, m, &args, CHECK);
   }
 
+  // 把新的class加入到systemDictionary
+  //
   // Add the new class. We need recompile lock during update of CHA.
   {
     unsigned int p_hash = placeholders()->compute_hash(name_h);
@@ -1708,18 +1732,26 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
 
     MutexLocker mu_r(Compile_lock, THREAD);
 
+    // 添加到class结构目录，初始化虚拟表，并把状态标记为loaded
+    //
     // Add to class hierarchy, initialize vtables, and do possible
     // deoptimizations.
     add_to_hierarchy(k, CHECK); // No exception, but can block
 
+    // 执行更新操作
+    //
     // Add to systemDictionary - so other classes can see it.
     // Grabs and releases SystemDictionary_lock
     update_dictionary(d_index, d_hash, p_index, p_hash,
                       k, class_loader_h, THREAD);
   }
+
+  // ============================================
+  // 链接并初始化klass
+  // ============================================
   k->eager_initialize(THREAD);
 
-  // notify jvmti
+  // 通知 jvmti
   if (JvmtiExport::should_post_class_load()) {
       assert(THREAD->is_Java_thread(), "thread->is_Java_thread()");
       JvmtiExport::post_class_load((JavaThread *) THREAD, k);
@@ -1727,6 +1759,16 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, TRAPS) {
   }
   class_define_event(k, loader_data);
 }
+
+// 支持并行类加载
+// 所有并行类加载器（包括引导类加载器）为该类/ class_loader对锁定一个占位符条目，
+// 以允许为该类加载器并行定义不同类具有AllowParallelDefine标志== true，以防它们不同步FindLoadedClass/DefineClass ，
+// 调用，我们检查它们的并行加载，等待defineClass正在进行并返回初始请求程序的结果此标志不适用于引导类加载程序。
+// 使用AllowParallelDefine标志== false，调用define_instance_class将抛出LinkageError：重复的类定义。
+// False是请求的默认值。为了获得更好的性能，类加载器应该同步findClass（），即FindLoadedClass / DefineClassIfAbsent，
+// 否则可能浪费时间读取和解析字节流。注意：VM调用者应确保k / class_name，class_loader的一致性在修改此代码时请小心：
+// 一旦运行了占位符（） - > find_and_add（PlaceholderTable :: DEFINE_CLASS），则需要在返回之前查找并重新调用它。
+// 所以请注意，在这些调用之间不要使用CHECK_宏退出。
 
 // Support parallel classloading
 // All parallel class loaders, including bootstrap classloader
@@ -1914,6 +1956,7 @@ void SystemDictionary::add_to_hierarchy(InstanceKlass* k, TRAPS) {
   // Link into hierachy. Make sure the vtables are initialized before linking into
   k->append_to_sibling_list();                    // add to superklass/sibling list
   k->process_interfaces(THREAD);                  // handle all "implements" declarations
+  // class状态标记为loaded
   k->set_init_state(InstanceKlass::loaded);
   // Now flush all code that depended on old class hierarchy.
   // Note: must be done *after* linking k into the hierarchy (was bug 12/9/97)

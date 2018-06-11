@@ -1442,6 +1442,7 @@ InstanceKlass* ClassLoader::load_class(Symbol* name, bool search_append_only, TR
 
   EventMark m("loading class %s", class_name);
 
+  // 组装文件名（+ .class）
   const char* const file_name = file_name_for_class_name(class_name,
                                                          name->utf8_length());
   assert(file_name != NULL, "invariant");
@@ -1536,6 +1537,11 @@ InstanceKlass* ClassLoader::load_class(Symbol* name, bool search_append_only, TR
   ClassLoaderData* loader_data = ClassLoaderData::the_null_class_loader_data();
   Handle protection_domain;
 
+  // ===============================================
+  //
+  // 解析class文件流并创建Klass
+  //
+  // ===============================================
   InstanceKlass* result = KlassFactory::create_from_stream(stream,
                                                            name,
                                                            loader_data,

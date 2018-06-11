@@ -173,7 +173,13 @@ static ClassFileStream* check_class_file_load_hook(ClassFileStream* stream,
   return stream;
 }
 
-// 从class文件流创建InstanceKlass
+// =====================================================================================================================
+//                            解析class文件流并创建InstanceKlass
+// =====================================================================================================================
+// 入口1：| classLoader.cpp      # ClassLoader::load_class()               |
+// 入口2：| systemDictionary.cpp # SystemDictionary::parse_stream()        |  与resolve_from_stream()方法类似，但不会把解析的klass添加至systemDictionary
+// 入口3：| systemDictionary.cpp # SystemDictionary::resolve_from_stream() |  called by jni_DefineClass and JVM_DefineClass).
+// =====================================================================================================================
 InstanceKlass* KlassFactory::create_from_stream(ClassFileStream* stream,
                                                 Symbol* name,
                                                 ClassLoaderData* loader_data,
@@ -202,7 +208,23 @@ InstanceKlass* KlassFactory::create_from_stream(ClassFileStream* stream,
                                         CHECK_NULL);
   }
 
-  // 解析class文件
+  // ============================================================================
+  //
+  // 实例化class文件解析器并执行解析操作，包含：
+  //
+  // ============================================================================
+  // 1. 魔数
+  // 2. 版本号
+  // 3. 常量池
+  // 4. 访问标识
+  // 5. 类的修饰符合法性验证
+  // 6. 父类
+  // 7. 接口列表
+  // 8. 域列表
+  // 9. 方法列表
+  // 10. 属性和注解列表
+  //
+  // ============================================================================
   ClassFileParser parser(stream,
                          name,
                          loader_data,
@@ -212,6 +234,11 @@ InstanceKlass* KlassFactory::create_from_stream(ClassFileStream* stream,
                          ClassFileParser::BROADCAST, // publicity level
                          CHECK_NULL);
 
+  // ============================================================================
+  //
+  // 创建InstanceKlass，并把classFileParser解析的文件流内容填充至InstanceKlass返回
+  //
+  // ============================================================================
   InstanceKlass* result = parser.create_instance_klass(old_stream != stream, CHECK_NULL);
   assert(result == parser.create_instance_klass(old_stream != stream, THREAD), "invariant");
 

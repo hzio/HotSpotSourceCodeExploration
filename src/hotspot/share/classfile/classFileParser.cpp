@@ -84,6 +84,12 @@
 
 // We add assert in debug mode when class format is not checked.
 
+// =======================================================================
+//
+//              class文件魔数、版本号定义
+//
+// =======================================================================
+
 #define JAVA_CLASSFILE_MAGIC              0xCAFEBABE
 #define JAVA_MIN_SUPPORTED_VERSION        45
 #define JAVA_MAX_SUPPORTED_VERSION        53
@@ -2293,6 +2299,7 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
     "Illegal constant pool index %u for method name in class file %s",
     name_index, CHECK_NULL);
   const Symbol* const name = cp->symbol_at(name_index);
+  // 验证方法合法性
   verify_legal_method_name(name, CHECK_NULL);
 
   const u2 signature_index = cfs->get_u2_fast();
@@ -2313,9 +2320,11 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
       classfile_parse_error("Method <clinit> is not static in class file %s", CHECK_NULL);
     }
   } else {
+    // 验证方法修饰符合法性
     verify_legal_method_modifiers(flags, is_interface, name, CHECK_NULL);
   }
 
+  // 如果是接口
   if (name == vmSymbols::object_initializer_name() && is_interface) {
     classfile_parse_error("Interface cannot have a method named <init>, class file %s", CHECK_NULL);
   }
@@ -2753,6 +2762,7 @@ Method* ClassFileParser::parse_method(const ClassFileStream* const cfs,
       annotation_default_length,
       0);
 
+  // 分配方法空间
   Method* const m = Method::allocate(_loader_data,
                                      code_length,
                                      access_flags,
@@ -2910,6 +2920,9 @@ void ClassFileParser::parse_methods(const ClassFileStream* const cfs,
                                                    CHECK);
 
     for (int index = 0; index < length; index++) {
+      // ===============================================
+      // 遍历解析所有方法
+      // ===============================================
       Method* method = parse_method(cfs,
                                     is_interface,
                                     _cp,
@@ -2925,6 +2938,7 @@ void ClassFileParser::parse_methods(const ClassFileStream* const cfs,
         && !method->is_abstract() && !method->is_static()) {
         *declares_nonstatic_concrete_methods = true;
       }
+      // // 放入方法表
       _methods->at_put(index, method);
     }
 
@@ -3582,6 +3596,7 @@ const InstanceKlass* ClassFileParser::parse_super_class(ConstantPool* const cp,
     // However, make sure it is not an array type.
     bool is_array = false;
     if (cp->tag_at(super_class_index).is_klass()) {
+      // 转换父类
       super_klass = InstanceKlass::cast(cp->resolved_klass_at(super_class_index));
       if (need_verify)
         is_array = super_klass->is_array_klass();
@@ -4614,6 +4629,7 @@ void ClassFileParser::verify_legal_class_modifiers(jint flags, TRAPS) const {
   const bool is_annotation = (flags & JVM_ACC_ANNOTATION) != 0;
   const bool major_gte_15  = _major_version >= JAVA_1_5_VERSION;
 
+  // 如果类修饰符满足以下任意组合则抛错java_lang_ClassFormatError()
   if ((is_abstract && is_final) ||
       (is_interface && !is_abstract) ||
       (is_interface && major_gte_15 && (is_super || is_enum)) ||
@@ -4687,6 +4703,7 @@ void ClassFileParser::verify_legal_field_modifiers(jint flags,
   }
 }
 
+// 验证方法修饰符合法性
 void ClassFileParser::verify_legal_method_modifiers(jint flags,
                                                     bool is_interface,
                                                     const Symbol* name,
@@ -5283,9 +5300,11 @@ InstanceKlass* ClassFileParser::create_instance_klass(bool changed_by_loadhook, 
     return _klass;
   }
 
+  // 为新建的InstanceKlass分配内存空间
   InstanceKlass* const ik =
     InstanceKlass::allocate_instance_klass(*this, CHECK_NULL);
 
+  // 把classFileParser解析的文件流内容填充至InstanceKlass
   fill_instance_klass(ik, changed_by_loadhook, CHECK_NULL);
 
   assert(_klass == ik, "invariant");
@@ -5691,9 +5710,14 @@ ClassFileParser::ClassFileParser(ClassFileStream* stream,
   // Do not restrict it to jdk1.0 or jdk1.1 to maintain backward compatibility (4982376)
   _relax_verify = relax_format_check_for(_loader_data);
 
+  // ================================================================
+  // 执行解析操作
+  // ================================================================
   parse_stream(stream, CHECK);
 
+  // 执行一些解析的后续操作（计算该类实现的接口列表、对方法列表进行排序等）
   post_process_parsed_stream(stream, _cp, CHECK);
+
 }
 
 void ClassFileParser::clear_class_metadata() {
@@ -5765,6 +5789,7 @@ ClassFileParser::~ClassFileParser() {
   }
 }
 
+// 解析文件流
 void ClassFileParser::parse_stream(const ClassFileStream* const stream,
                                    TRAPS) {
 
@@ -5773,13 +5798,13 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
 
   // BEGIN STREAM PARSING
   stream->guarantee_more(8, CHECK);  // magic, major, minor
-  // Magic value
+  // 魔数
   const u4 magic = stream->get_u4_fast();
   guarantee_property(magic == JAVA_CLASSFILE_MAGIC,
                      "Incompatible magic value %u in class file %s",
                      magic, CHECK);
 
-  // Version numbers
+  // 版本号
   _minor_version = stream->get_u2_fast();
   _major_version = stream->get_u2_fast();
 
@@ -5795,7 +5820,7 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
       _minor_version);
   }
 
-  // Check version numbers - we check this even with verifier off
+  // 检查版本号是否支持，如果不支持抛出java_lang_UnsupportedClassVersionError()
   if (!is_supported_version(_major_version, _minor_version)) {
     ResourceMark rm(THREAD);
     Exceptions::fthrow(
@@ -5824,12 +5849,14 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
   }
   cp_size += _max_num_patched_klasses;
 
+  // 分配常量池空间
   _cp = ConstantPool::allocate(_loader_data,
                                cp_size,
                                CHECK);
 
   ConstantPool* const cp = _cp;
 
+  // 解析常量池
   parse_constant_pool(stream, cp, _orig_cp_size, CHECK);
 
   assert(cp_size == (const u2)cp->length(), "invariant");
@@ -5837,9 +5864,9 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
   // ACCESS FLAGS
   stream->guarantee_more(8, CHECK);  // flags, this_class, super_class, infs_len
 
-  // Access flags
+  // 访问标识
   jint flags;
-  // JVM_ACC_MODULE is defined in JDK-9 and later.
+  // 定义了JVM_ACC_MODULE in JDK-9 and later.
   if (_major_version >= JAVA_9_VERSION) {
     flags = stream->get_u2_fast() & (JVM_RECOGNIZED_CLASS_MODIFIERS | JVM_ACC_MODULE);
   } else {
@@ -5851,6 +5878,7 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
     flags |= JVM_ACC_ABSTRACT;
   }
 
+  // 验证类的修饰符合法性
   verify_legal_class_modifiers(flags, CHECK);
 
   short bad_constant = class_bad_constant_seen();
@@ -5899,6 +5927,7 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
     return;
   }
 
+  // 修复匿名类名
   // if this is an anonymous class fix up its name if it's in the unnamed
   // package.  Otherwise, throw IAE if it is in a different package than
   // its host class.
@@ -5949,14 +5978,14 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
 #endif
   }
 
-  // SUPERKLASS
+  // 解析父类
   _super_class_index = stream->get_u2_fast();
   _super_klass = parse_super_class(cp,
                                    _super_class_index,
                                    _need_verify,
                                    CHECK);
 
-  // Interfaces
+  // 解析接口
   _itfs_len = stream->get_u2_fast();
   parse_interfaces(stream,
                    _itfs_len,
@@ -5966,6 +5995,7 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
 
   assert(_local_interfaces != NULL, "invariant");
 
+  // 解析Field
   // Fields (offsets are filled in later)
   _fac = new FieldAllocationCount();
   parse_fields(stream,
@@ -5978,7 +6008,12 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
 
   assert(_fields != NULL, "invariant");
 
-  // Methods
+  // ======================================================
+  //
+  // 解析方法列表
+  // 包含栈、字节码表、异常表、局部变量表、运行指针等
+  //
+  // ======================================================
   AccessFlags promoted_flags;
   parse_methods(stream,
                 _access_flags.is_interface(),
@@ -5996,7 +6031,7 @@ void ClassFileParser::parse_stream(const ClassFileStream* const stream,
     _has_nonstatic_concrete_methods = true;
   }
 
-  // Additional attributes/annotations
+  // 解析attributes/annotations
   _parsed_annotations = new ClassAnnotationCollector();
   parse_classfile_attributes(stream, cp, _parsed_annotations, CHECK);
 
@@ -6038,6 +6073,7 @@ void ClassFileParser::post_process_parsed_stream(const ClassFileStream* const st
         CHECK);
     }
     Handle loader(THREAD, _loader_data->class_loader());
+    // 解析父类
     _super_klass = (const InstanceKlass*)
                        SystemDictionary::resolve_super_or_fail(_class_name,
                                                                super_class_name,
@@ -6052,6 +6088,7 @@ void ClassFileParser::post_process_parsed_stream(const ClassFileStream* const st
       _has_nonstatic_concrete_methods = true;
     }
 
+    // 确保不是接口
     if (_super_klass->is_interface()) {
       ResourceMark rm(THREAD);
       Exceptions::fthrow(
@@ -6063,12 +6100,13 @@ void ClassFileParser::post_process_parsed_stream(const ClassFileStream* const st
       );
       return;
     }
-    // Make sure super class is not final
+    // 确保父类不是final修饰
     if (_super_klass->is_final()) {
       THROW_MSG(vmSymbols::java_lang_VerifyError(), "Cannot inherit from final class");
     }
   }
 
+  // 计算由此类实现的所有唯一接口的传递列表
   // Compute the transitive list of all unique interfaces implemented by this class
   _transitive_interfaces =
     compute_transitive_interfaces(_super_klass,
@@ -6084,6 +6122,8 @@ void ClassFileParser::post_process_parsed_stream(const ClassFileStream* const st
   _all_mirandas = new GrowableArray<Method*>(20);
 
   Handle loader(THREAD, _loader_data->class_loader());
+
+  // 计算虚拟表大小
   klassVtable::compute_vtable_size_and_num_mirandas(&_vtable_size,
                                                     &_num_miranda_methods,
                                                     _all_mirandas,

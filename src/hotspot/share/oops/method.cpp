@@ -1020,6 +1020,7 @@ void Method::unlink_method() {
 
 ***/
 
+// 建立入口点
 // Called when the method_holder is getting linked. Setup entrypoints so the method
 // is ready to be called from interpreter, compiler, and vtables.
 void Method::link_method(const methodHandle& h_method, TRAPS) {

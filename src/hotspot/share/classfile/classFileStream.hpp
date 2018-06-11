@@ -29,6 +29,7 @@
 #include "utilities/bytes.hpp"
 #include "utilities/exceptions.hpp"
 
+// class文件流
 // Input stream for reading .class file
 //
 // The entire input stream is present in a buffer allocated by the caller.

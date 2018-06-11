@@ -908,6 +908,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
                              jt->get_thread_stat()->perf_timers_addr(),
                              PerfClassTraceTime::DEFINE_CLASS);
 
+  // 如果设置了-XX:+UsePerfData
   if (UsePerfData) {
     ClassLoader::perf_app_classfile_bytes_read()->inc(len);
   }
@@ -917,6 +918,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   TempNewSymbol class_name = NULL;
   if (name != NULL) {
     const int str_len = (int)strlen(name);
+
     // 如果全限定名超过了最大限制则抛出java_lang_NoClassDefFoundError()
     if (str_len > Symbol::max_length()) {
       // It's impossible to create this class;  the name cannot fit
@@ -933,6 +935,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   }
 
   ResourceMark rm(THREAD);
+  // 创建文件流
   ClassFileStream st((u1*)buf, len, source, ClassFileStream::verify);
   Handle class_loader (THREAD, JNIHandles::resolve(loader));
   if (UsePerfData) {
@@ -943,8 +946,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   Handle protection_domain (THREAD, JNIHandles::resolve(pd));
   // =============================================================================
   //
-  // 解析class文件流
-  //
+  // 解析class文件流并返回对应的Klass
   //
   // =============================================================================
   Klass* k = SystemDictionary::resolve_from_stream(class_name,

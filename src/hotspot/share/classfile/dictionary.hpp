@@ -36,6 +36,8 @@
 class DictionaryEntry;
 class BoolObjectClosure;
 
+// classloader用来容纳已装载类的容器
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // The data structure for the class loader data dictionaries (and the shared system
 // dictionary).

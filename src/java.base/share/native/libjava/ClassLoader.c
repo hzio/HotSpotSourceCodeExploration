@@ -72,6 +72,7 @@ getUTF(JNIEnv *env, jstring str, char* localBuf, int bufSize)
     return utfStr;
 }
 
+// 加载指定类
 JNIEXPORT jclass JNICALL
 Java_java_lang_ClassLoader_defineClass1(JNIEnv *env,
                                         jclass cls,
@@ -133,6 +134,10 @@ Java_java_lang_ClassLoader_defineClass1(JNIEnv *env,
     } else {
         utfSource = NULL;
     }
+
+    // ==========================================
+    // 查找并加载class
+    // ==========================================
     result = JVM_DefineClassWithSource(env, utfName, loader, body, length, pd, utfSource);
 
     if (utfSource && utfSource != sourceBuf)
