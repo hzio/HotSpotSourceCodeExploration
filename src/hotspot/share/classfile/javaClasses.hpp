@@ -346,6 +346,8 @@ class java_lang_Thread : AllStatic {
   static jlong park_event(oop java_thread);
   static bool set_park_event(oop java_thread, jlong ptr);
 
+
+  // Java语言级别的线程状态
   // Java Thread Status for JVMTI and M&M use.
   // This thread status info is saved in threadStatus field of
   // java.lang.Thread java class.

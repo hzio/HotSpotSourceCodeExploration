@@ -87,17 +87,22 @@ DEBUG_ONLY(class ResourceMark;)
 
 class WorkerThread;
 
+// =========================================================
+//                    线程实现类结构
+// =========================================================
+
 // Class hierarchy
 // - Thread
-//   - NamedThread
-//     - VMThread
-//     - ConcurrentGCThread
-//     - WorkerThread
-//       - GangWorker
-//       - GCTaskThread
-//   - JavaThread
+//   - NamedThread               支持命名的非Java线程
+//     - VMThread                   VM原始线程，用于执行VM操作
+//     - ConcurrentGCThread         并发GC线程
+//     - WorkerThread               工作线程
+//       - GangWorker               一组线程，类似线程池
+//       - GCTaskThread             GC任务线程
+//   - JavaThread                C++层面的Java线程实现
 //     - various subclasses eg CompilerThread, ServiceThread
-//   - WatcherThread
+//                                  各种子类，如：编译器线程，服务线程
+//   - WatcherThread             监视器线程，用于模拟计时器中断
 
 class Thread: public ThreadShadow {
   friend class VMStructs;
