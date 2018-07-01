@@ -67,6 +67,7 @@ enum OSReturn {
   OS_NORESOURCE = -6         // Operation failed for lack of nonmemory resource
 };
 
+// 线程优先级
 enum ThreadPriority {        // JLS 20.20.1-3
   NoPriority       = -1,     // Initial non-priority value
   MinPriority      =  1,     // Minimum priority

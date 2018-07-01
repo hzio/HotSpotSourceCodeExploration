@@ -57,6 +57,9 @@ enum ThreadState {
 // the assembler test in java.cpp expects that it can install the OSThread of
 // the main thread into its own Thread at will.
 
+// ===============================================
+// 操作系统线程，持有特定平台线程信息
+// ===============================================
 
 class OSThread: public CHeapObj<mtThread> {
   friend class VMStructs;

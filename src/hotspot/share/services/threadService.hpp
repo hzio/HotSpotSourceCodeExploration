@@ -43,6 +43,8 @@ class StackFrameInfo;
 class ThreadConcurrentLocks;
 class DeadlockCycle;
 
+// 为线程及同步子系统提供JVM监控和管理
+
 // VM monitoring and management support for the thread and
 // synchronization subsystem
 //

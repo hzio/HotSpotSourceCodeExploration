@@ -300,6 +300,7 @@ void Thread::initialize_thread_current() {
   _thr_current = this;
 #endif
   assert(ThreadLocalStorage::thread() == NULL, "ThreadLocalStorage::thread already initialized");
+  // 把当前线程加入到TLS里
   ThreadLocalStorage::set_thread(this);
   assert(Thread::current() == ThreadLocalStorage::thread(), "TLS mismatch!");
 }
@@ -423,6 +424,8 @@ void Thread::start(Thread* thread) {
   // being called from a Java method synchronized on the Thread object.
   if (!DisableStartThread) {
     if (thread->is_Java_thread()) {
+
+      // 设置线程状态为RUNNABLE
       // Initialize the thread state to RUNNABLE before starting this thread.
       // Can not set it after the thread started because we do not know the
       // exact thread state at that time. It could be in MONITOR_WAIT or
@@ -430,6 +433,7 @@ void Thread::start(Thread* thread) {
       java_lang_Thread::set_thread_status(((JavaThread*)thread)->threadObj(),
                                           java_lang_Thread::RUNNABLE);
     }
+    // 启动线程
     os::start_thread(thread);
   }
 }
@@ -1483,6 +1487,7 @@ void JavaThread::initialize() {
   }
 #endif // PRODUCT
 
+  // 为该线程设置安全点
   // Setup safepoint state info for this thread
   ThreadSafepointState::create(this);
 
@@ -1569,6 +1574,7 @@ void JavaThread::block_if_vm_exited() {
 static void compiler_thread_entry(JavaThread* thread, TRAPS);
 static void sweeper_thread_entry(JavaThread* thread, TRAPS);
 
+// C++级别Java线程构造方法
 JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
                        Thread()
 #if INCLUDE_ALL_GCS
@@ -1576,14 +1582,23 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
                        _dirty_card_queue(&_dirty_card_queue_set)
 #endif // INCLUDE_ALL_GCS
 {
+  // 初始化实例变量
   initialize();
   _jni_attach_state = _not_attaching_via_jni;
+  // =============================================
+  // 设置Java执行线程入口，最终会调用
+  // =============================================
   set_entry_point(entry_point);
+  // 创建系统级本地线程
   // Create the native thread itself.
   // %note runtime_23
   os::ThreadType thr_type = os::java_thread;
   thr_type = entry_point == &compiler_thread_entry ? os::compiler_thread :
                                                      os::java_thread;
+
+  // =============================================
+  // 调用系统库创建线程
+  // =============================================
   os::create_thread(this, thr_type, stack_sz);
   // The _osthread may be NULL here because we ran out of memory (too many threads active).
   // We need to throw and OutOfMemoryError - however we cannot do this here because the caller
@@ -1645,6 +1660,9 @@ JavaThread::~JavaThread() {
 
 // The first routine called by a new Java thread
 void JavaThread::run() {
+
+
+  // 执行run方法前的初始化和缓存工作
   // initialize thread-local alloc buffer related fields
   this->initialize_tlab();
 
@@ -1671,6 +1689,7 @@ void JavaThread::run() {
   // been completed.
   this->set_active_handles(JNIHandleBlock::allocate_block());
 
+  // 通知JVMTI
   if (JvmtiExport::should_post_thread_life()) {
     JvmtiExport::post_thread_start(this);
   }
@@ -1681,6 +1700,9 @@ void JavaThread::run() {
     event.commit();
   }
 
+  // ==================================================
+  // 执行Java级别Thread类run()方法内容
+  // ==================================================
   // We call another function to do the rest so we are sure that the stack addresses used
   // from there will be lower than the stack base just computed
   thread_main_inner();
@@ -1703,12 +1725,18 @@ void JavaThread::thread_main_inner() {
       this->set_native_thread_name(this->get_thread_name());
     }
     HandleMark hm(this);
+
+    // ==========================================
+    // 执行线程入口java.lang.Thread # run()方法
+    // ==========================================
     this->entry_point()(this, this);
   }
 
   DTRACE_THREAD_PROBE(stop, this);
 
+  // 退出并释放空间
   this->exit(false);
+  // 释放资源
   delete this;
 }
 
@@ -3012,6 +3040,7 @@ ThreadPriority JavaThread::java_priority() const {
   return priority;
 }
 
+// 准备Java本地线程
 void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
 
   assert(Threads_lock->owner() == Thread::current(), "must have threads lock");
@@ -3028,10 +3057,13 @@ void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
   // Set the thread field (a JavaThread *) of the
   // oop representing the java_lang_Thread to the new thread (a JavaThread *).
 
+  // 创建JNI Handle对象
   Handle thread_oop(Thread::current(),
                     JNIHandles::resolve_non_null(jni_thread));
   assert(InstanceKlass::cast(thread_oop->klass())->is_linked(),
          "must be initialized");
+
+  // 链接Java线程 <-> C++线程
   set_threadObj(thread_oop());
   java_lang_Thread::set_thread(thread_oop(), this);
 
@@ -3040,11 +3072,14 @@ void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
     assert(prio != NoPriority, "A valid priority should be present");
   }
 
+  // 设置线程执行优先级
   // Push the Java priority down to the native thread; needs Threads_lock
   Thread::set_priority(this, prio);
 
+  // 啥都没做
   prepare_ext();
 
+  // 把新线程加入到线程组并设置为活动中
   // Add the new thread to the Threads list and set it in motion.
   // We must have threads lock in order to call Threads::add.
   // It is crucial that we do not block before the thread is
@@ -4252,14 +4287,17 @@ jboolean Threads::is_supported_jni_version(jint version) {
   return JNI_FALSE;
 }
 
-
+// 添加线程
 void Threads::add(JavaThread* p, bool force_daemon) {
   // The threads lock must be owned at this point
   assert_locked_or_safepoint(Threads_lock);
 
+  // 初始化队列
   // See the comment for this method in thread.hpp for its purpose and
   // why it is called here.
   p->initialize_queues();
+
+  // 指定线程链下一个
   p->set_next(_thread_list);
   _thread_list = p;
   _number_of_threads++;
@@ -4272,6 +4310,7 @@ void Threads::add(JavaThread* p, bool force_daemon) {
     daemon = false;
   }
 
+  // 把线程加入到ThreadService，为线程及同步子系统提供JVM监控和管理
   ThreadService::add_thread(p, daemon);
 
   // Possible GC point.

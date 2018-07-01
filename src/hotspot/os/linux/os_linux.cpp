@@ -615,6 +615,7 @@ bool os::Linux::manually_expand_stack(JavaThread * t, address addr) {
 //////////////////////////////////////////////////////////////////////////////
 // create new thread
 
+// 线程执行入口
 // Thread start routine for all newly created threads
 static void *thread_native_entry(Thread *thread) {
   // Try to randomize the cache line index of hot stack frames.
@@ -626,9 +627,11 @@ static void *thread_native_entry(Thread *thread) {
   int pid = os::current_process_id();
   alloca(((pid ^ counter++) & 7) * 128);
 
+  // 初始化当前线程，把当前线程加入到TLS里
   thread->initialize_thread_current();
 
   OSThread* osthread = thread->osthread();
+  // 获取同步锁
   Monitor* sync = osthread->startThread_lock();
 
   osthread->set_thread_id(os::current_thread_id());
@@ -662,6 +665,9 @@ static void *thread_native_entry(Thread *thread) {
     }
   }
 
+  // =======================================================
+  // 调用JavaThread的run方法以便触发执行java.lang.Thread.run()
+  // =======================================================
   // call one more level start routine
   thread->run();
 
@@ -684,6 +690,7 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
                        size_t req_stack_size) {
   assert(thread->osthread() == NULL, "caller responsible");
 
+  // 创建操作系统线程
   // Allocate the OSThread object
   OSThread* osthread = new OSThread(NULL, NULL);
   if (osthread == NULL) {
@@ -693,9 +700,11 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
   // set the correct thread state
   osthread->set_thread_type(thr_type);
 
+  // 把osthread状态设置为已分配
   // Initial state is ALLOCATED but not INITIALIZED
   osthread->set_state(ALLOCATED);
 
+  // 绑定至JavaThread
   thread->set_osthread(osthread);
 
   // init thread attributes
@@ -728,6 +737,10 @@ bool os::create_thread(Thread* thread, ThreadType thr_type,
 
   {
     pthread_t tid;
+
+    // ========================================================
+    // 调用系统库创建线程，thread_native_entry为本地Java线程执行入口
+    // ========================================================
     int ret = pthread_create(&tid, &attr, (void* (*)(void*)) thread_native_entry, thread);
 
     char buf[64];
@@ -844,11 +857,13 @@ bool os::create_attached_thread(JavaThread* thread) {
   return true;
 }
 
+// 启动线程
 void os::pd_start_thread(Thread* thread) {
   OSThread * osthread = thread->osthread();
   assert(osthread->get_state() != INITIALIZED, "just checking");
   Monitor* sync_with_child = osthread->startThread_lock();
   MutexLockerEx ml(sync_with_child, Mutex::_no_safepoint_check_flag);
+  // 通知子线程继续往下执行
   sync_with_child->notify();
 }
 

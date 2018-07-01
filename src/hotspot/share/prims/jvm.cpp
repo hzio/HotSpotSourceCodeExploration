@@ -2783,10 +2783,14 @@ void jio_print(const char* s) {
 // instance), and are very unlikely.  Because IsAlive needs to be fast and its
 // implementation is local to this file, we always lock Threads_lock for that one.
 
+// 最终执行实例化JavaThread时设置的入口方法entry_point，代表了Java代码级别Java线程执行入口，
+// 这里通过JavaCalls组件调用java.lang.Thread.run()方法，执行真正的用户逻辑代码。
+
 static void thread_entry(JavaThread* thread, TRAPS) {
   HandleMark hm(THREAD);
   Handle obj(THREAD, thread->threadObj());
   JavaValue result(T_VOID);
+  // 执行Java调用
   JavaCalls::call_virtual(&result,
                           obj,
                           SystemDictionary::Thread_klass(),
@@ -2808,10 +2812,12 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   // We must release the Threads_lock before we can post a jvmti event
   // in Thread::start.
   {
+    // 获取互斥锁
     // Ensure that the C++ Thread and OSThread structures aren't freed before
     // we operate.
     MutexLocker mu(Threads_lock);
 
+    // 线程状态检查，确保尚未启动
     // Since JDK 5 the java.lang.Thread threadStatus is used to prevent
     // re-starting an already started thread, so we should usually find
     // that the JavaThread is null. However for a JNI attached thread
@@ -2826,6 +2832,8 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
 
       jlong size =
              java_lang_Thread::stackSize(JNIHandles::resolve_non_null(jthread));
+
+      // 创建本地线程
       // Allocate the C++ Thread structure and create the native thread.  The
       // stack size retrieved from java is 64-bit signed, but the constructor takes
       // size_t (an unsigned type), which may be 32 or 64-bit depending on the platform.
@@ -2833,8 +2841,13 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       //  - Avoid passing negative values which would result in really large stacks.
       NOT_LP64(if (size > SIZE_MAX) size = SIZE_MAX;)
       size_t sz = size > 0 ? (size_t) size : 0;
+
+      // ===============================================================
+      // 创建C++级别的本地线程，&thread_entry为线程run方法执行入口
+      // ===============================================================
       native_thread = new JavaThread(&thread_entry, sz);
 
+      // 检查该本地线程中是否包含OSThread，因为可能出现由于内存不足导致OSThread未创建成功的情况
       // At this point it may be possible that no osthread was created for the
       // JavaThread due to lack of memory. Check for this situation and throw
       // an exception if necessary. Eventually we may want to change this so
@@ -2843,6 +2856,9 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
       // JavaThread constructor.
       if (native_thread->osthread() != NULL) {
         // Note: the current thread is not being used within "prepare".
+        // ===============================================================
+        // 准备Java本地线程，链接Java线程 <-> C++线程
+        // ===============================================================
         native_thread->prepare(jthread);
       }
     }
@@ -2866,6 +2882,9 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
               os::native_thread_creation_failed_msg());
   }
 
+  // ===============================================================
+  // 启动Java本地线程
+  // ===============================================================
   Thread::start(native_thread);
 
 JVM_END
